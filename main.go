@@ -8,8 +8,6 @@ import (
 )
 
 func main() {
-	game := game.New()
-
 	ebiten.SetWindowSize(640, 480)
 	ebiten.SetWindowTitle("Pong - Ebitengine - 20 Games Challenge")
 	if err := ebiten.RunGame(game.New()); err != nil {
