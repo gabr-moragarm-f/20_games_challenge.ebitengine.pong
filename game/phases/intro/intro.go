@@ -1,21 +1,23 @@
 package intro
 
 import (
+	"bytes"
 	"embed"
+	"errors"
 	"image"
+	"image/color"
 	"log"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 //go:embed assets/*
 var introFS embed.FS
 
 const (
-	screenWidth     = 640
-	screenHeight    = 480
 	fadeInDuration  = 2 * time.Second
 	fadeOutDuration = fadeInDuration
 	displayTime     = 2 * time.Second
@@ -24,95 +26,127 @@ const (
 type AnimationState int
 
 const (
-	FadeInEbitengineLogo AnimationState = iota
-	ShowEbitengineLogo
-	FadeOutEbitengine
-	FadeInGmfLogo
-	ShowGmfLogo
-	FadeOutGmfLogo
-	Done
+	FadeInLogo AnimationState = iota
+	ShowLogo
+	FadeOutLogo
 )
 
 type Intro struct {
-	ebitengineLogo *ebiten.Image
-	gmfLogo        *ebiten.Image
+	logos          []logo
+	logoIndex      int
 	stateStartTime time.Time
 	state          AnimationState
 	alpha          float32
 }
 
+type logo struct {
+	image *ebiten.Image
+	name  string
+	font  *text.GoTextFaceSource
+	color color.Color
+}
+
 func New() *Intro {
-	ebitengineLogo, _, err := ebitenutil.NewImageFromFileSystem(introFS, "assets/ebitengine_logo.png")
-	if err != nil {
-		log.Fatalf("Error while loading ebitengine logo: %v", err)
-	}
-
-	gmfLogo, _, err := ebitenutil.NewImageFromFileSystem(introFS, "assets/gmf_logo.png")
-	if err != nil {
-		log.Fatalf("Error while loading GMF logo: %v", err)
-	}
-
 	return &Intro{
-		ebitengineLogo: ebitengineLogo,
-		gmfLogo:        gmfLogo,
+		logos:          initLogos(),
+		logoIndex:      0,
 		stateStartTime: time.Now(),
-		state:          FadeInEbitengineLogo,
+		state:          FadeInLogo,
 		alpha:          1.0,
 	}
 }
 
+func initLogos() []logo {
+	logos := []logo{}
+	logos = append(logos, newEbitengineLogo())
+	logos = append(logos, newGmfLogo())
+	return logos
+}
+
+func newEbitengineLogo() logo {
+	img, _, err := ebitenutil.NewImageFromFileSystem(introFS, "assets/ebitengine_logo.png")
+	if err != nil {
+		log.Fatalf("Error while loading Ebitengine logo: %v", err)
+	}
+
+	fontBuf, err := introFS.ReadFile("assets/Roboto-Black.ttf")
+	if err != nil {
+		log.Fatalf("Error while loading Ebitengine font file: %v", err)
+	}
+
+	font, err := text.NewGoTextFaceSource(bytes.NewReader(fontBuf))
+	if err != nil {
+		log.Fatalf("Error while loading Ebitengine font: %v", err)
+	}
+
+	return logo{
+		image: img,
+		name:  "Ebitengine™",
+		font:  font,
+		color: color.RGBA{213, 65, 37, 255},
+	}
+}
+
+func newGmfLogo() logo {
+	img, _, err := ebitenutil.NewImageFromFileSystem(introFS, "assets/gmf_logo.png")
+	if err != nil {
+		log.Fatalf("Error while loading GMF logo: %v", err)
+	}
+
+	fontBuf, err := introFS.ReadFile("assets/MsMadi-Regular.ttf")
+	if err != nil {
+		log.Fatalf("Error while loading GMF font file: %v", err)
+	}
+
+	font, err := text.NewGoTextFaceSource(bytes.NewReader(fontBuf))
+	if err != nil {
+		log.Fatalf("Error while loading GMF font: %v", err)
+	}
+
+	return logo{
+		image: img,
+		name:  "Gabriel Moraga Figueroa",
+		font:  font,
+		color: color.RGBA{21, 43, 56, 255},
+	}
+}
+
 func (intro *Intro) Update() error {
+	if intro.logoIndex < 0 {
+		return errors.New("logo index is negative")
+	}
+
 	elapsed := time.Since(intro.stateStartTime)
 
 	switch intro.state {
-	case FadeInEbitengineLogo:
+	case FadeInLogo:
 		intro.alpha = float32(elapsed) / float32(fadeInDuration)
 
 		if intro.alpha >= 1.0 {
 			intro.alpha = 1.0
-			intro.state = ShowEbitengineLogo
+			intro.state = ShowLogo
 			intro.stateStartTime = time.Now()
 		}
 
-	case ShowEbitengineLogo:
+	case ShowLogo:
 		if elapsed >= displayTime {
-			intro.state = FadeOutEbitengine
+			intro.state = FadeOutLogo
 			intro.stateStartTime = time.Now()
 		}
 
-	case FadeOutEbitengine:
+	case FadeOutLogo:
 		intro.alpha = 1.0 - float32(elapsed)/float32(fadeOutDuration)
 		if intro.alpha <= 0.0 {
 			intro.alpha = 0.0
-			intro.state = FadeInGmfLogo
+			intro.state = FadeInLogo
+			intro.logoIndex++
 			intro.stateStartTime = time.Now()
 		}
+	}
 
-	case FadeInGmfLogo:
-		intro.alpha = float32(elapsed) / float32(fadeInDuration)
-
-		if intro.alpha >= 1.0 {
-			intro.alpha = 1.0
-			intro.state = ShowGmfLogo
-			intro.stateStartTime = time.Now()
-		}
-
-	case ShowGmfLogo:
-		if elapsed >= displayTime {
-			intro.state = FadeOutGmfLogo
-			intro.stateStartTime = time.Now()
-		}
-
-	case FadeOutGmfLogo:
-		intro.alpha = 1.0 - float32(elapsed)/float32(fadeOutDuration)
-		if intro.alpha <= 0.0 {
-			intro.alpha = 0.0
-			intro.state = Done
-		}
-
-	case Done:
-		log.Fatal("Executed")
-		// TODO: Add a transition to the next phase
+	if intro.logoIndex >= len(intro.logos) {
+		log.Fatalf("Intro phase has finished")
+		// TODO: Go to the next phase
 	}
 
 	return nil
@@ -121,21 +155,41 @@ func (intro *Intro) Update() error {
 func (intro *Intro) Draw(screen *ebiten.Image) {
 	screen.Fill(image.Black)
 
-	var img *ebiten.Image
-	if intro.state == FadeInEbitengineLogo || intro.state == ShowEbitengineLogo || intro.state == FadeOutEbitengine {
-		img = intro.ebitengineLogo
-	} else if intro.state == FadeInGmfLogo || intro.state == ShowGmfLogo || intro.state == FadeOutGmfLogo {
-		img = intro.gmfLogo
-	}
+	op := &ebiten.DrawImageOptions{}
 
-	if img != nil {
-		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(float64(screenWidth)/2-float64(img.Bounds().Dx())/2, float64(screenHeight)/2-float64(img.Bounds().Dy())/2)
-		op.ColorScale.ScaleAlpha(intro.alpha)
-		screen.DrawImage(img, op)
-	}
+	// Scale the logo image
+	screenWidth := screen.Bounds().Dx()
+	screenHeight := screen.Bounds().Dy()
+	targetLogoHeight := float64(screenHeight) * 0.3
+	targetTextHeight := float64(screenHeight) * 0.1
+	scale := targetLogoHeight / float64(intro.logos[intro.logoIndex].image.Bounds().Dy())
+	op.Filter = ebiten.FilterLinear
+	op.GeoM.Scale(scale, scale)
+
+	// Center the logo image
+	logoX := float64(screenWidth)/2 - float64(intro.logos[intro.logoIndex].image.Bounds().Dx())*scale/2
+	logoY := float64(screenHeight)/2 - targetLogoHeight/2 - targetTextHeight/2
+	op.GeoM.Translate(logoX, logoY)
+	op.ColorScale.ScaleAlpha(intro.alpha)
+	screen.DrawImage(intro.logos[intro.logoIndex].image, op)
+
+	textOp := &text.DrawOptions{}
+	textOp.PrimaryAlign = text.AlignCenter
+	textOp.SecondaryAlign = text.AlignCenter
+	textOp.GeoM.Translate(float64(screenWidth)/2, float64(screenHeight)/2+targetLogoHeight/2)
+	textOp.ColorScale.ScaleWithColor(intro.logos[intro.logoIndex].color)
+	textOp.ColorScale.ScaleAlpha(intro.alpha)
+	text.Draw(
+		screen,
+		intro.logos[intro.logoIndex].name,
+		&text.GoTextFace{
+			Source: intro.logos[intro.logoIndex].font,
+			Size:   targetTextHeight,
+		},
+		textOp,
+	)
 }
 
-func (la *Intro) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return screenWidth, screenHeight
+func (intro *Intro) Layout(outsideWidth, outsideHeight int) (int, int) {
+	return outsideWidth, outsideHeight
 }
