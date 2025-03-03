@@ -9,13 +9,16 @@ import (
 	"log"
 	"time"
 
+	"github.com/gabr-moragarm-f/20_games_challenge.ebitengine.pong/game/phases"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 //go:embed assets/*
-var introFS embed.FS
+var iFS embed.FS
+
+const Identifier = phases.Intro
 
 const (
 	fadeInDuration  = 2 * time.Second
@@ -37,6 +40,8 @@ type Intro struct {
 	stateStartTime time.Time
 	state          AnimationState
 	alpha          float32
+	changePhase    bool
+	nextPhase      phases.Index
 }
 
 type logo struct {
@@ -64,12 +69,12 @@ func initLogos() []logo {
 }
 
 func newEbitengineLogo() logo {
-	img, _, err := ebitenutil.NewImageFromFileSystem(introFS, "assets/ebitengine_logo.png")
+	img, _, err := ebitenutil.NewImageFromFileSystem(iFS, "assets/ebitengine_logo.png")
 	if err != nil {
 		log.Fatalf("Error while loading Ebitengine logo: %v", err)
 	}
 
-	fontBuf, err := introFS.ReadFile("assets/Roboto-Black.ttf")
+	fontBuf, err := iFS.ReadFile("assets/Roboto-Black.ttf")
 	if err != nil {
 		log.Fatalf("Error while loading Ebitengine font file: %v", err)
 	}
@@ -88,12 +93,12 @@ func newEbitengineLogo() logo {
 }
 
 func newGmfLogo() logo {
-	img, _, err := ebitenutil.NewImageFromFileSystem(introFS, "assets/gmf_logo.png")
+	img, _, err := ebitenutil.NewImageFromFileSystem(iFS, "assets/gmf_logo.png")
 	if err != nil {
 		log.Fatalf("Error while loading GMF logo: %v", err)
 	}
 
-	fontBuf, err := introFS.ReadFile("assets/MsMadi-Regular.ttf")
+	fontBuf, err := iFS.ReadFile("assets/MsMadi-Regular.ttf")
 	if err != nil {
 		log.Fatalf("Error while loading GMF font file: %v", err)
 	}
@@ -111,48 +116,52 @@ func newGmfLogo() logo {
 	}
 }
 
-func (intro *Intro) Update() error {
-	if intro.logoIndex < 0 {
+func (i *Intro) Identify() phases.Index {
+	return Identifier
+}
+
+func (i *Intro) Update() error {
+	if i.logoIndex < 0 {
 		return errors.New("logo index is negative")
 	}
 
-	elapsed := time.Since(intro.stateStartTime)
+	elapsed := time.Since(i.stateStartTime)
 
-	switch intro.state {
+	switch i.state {
 	case FadeInLogo:
-		intro.alpha = float32(elapsed) / float32(fadeInDuration)
+		i.alpha = float32(elapsed) / float32(fadeInDuration)
 
-		if intro.alpha >= 1.0 {
-			intro.alpha = 1.0
-			intro.state = ShowLogo
-			intro.stateStartTime = time.Now()
+		if i.alpha >= 1.0 {
+			i.alpha = 1.0
+			i.state = ShowLogo
+			i.stateStartTime = time.Now()
 		}
 
 	case ShowLogo:
 		if elapsed >= displayTime {
-			intro.state = FadeOutLogo
-			intro.stateStartTime = time.Now()
+			i.state = FadeOutLogo
+			i.stateStartTime = time.Now()
 		}
 
 	case FadeOutLogo:
-		intro.alpha = 1.0 - float32(elapsed)/float32(fadeOutDuration)
-		if intro.alpha <= 0.0 {
-			intro.alpha = 0.0
-			intro.state = FadeInLogo
-			intro.logoIndex++
-			intro.stateStartTime = time.Now()
+		i.alpha = 1.0 - float32(elapsed)/float32(fadeOutDuration)
+		if i.alpha <= 0.0 {
+			i.alpha = 0.0
+			i.state = FadeInLogo
+			i.logoIndex++
+			i.stateStartTime = time.Now()
 		}
 	}
 
-	if intro.logoIndex >= len(intro.logos) {
-		log.Fatalf("Intro phase has finished")
-		// TODO: Go to the next phase
+	if i.logoIndex >= len(i.logos) {
+		i.changePhase = true
+		i.nextPhase = phases.Menu
 	}
 
 	return nil
 }
 
-func (intro *Intro) Draw(screen *ebiten.Image) {
+func (i *Intro) Draw(screen *ebiten.Image) {
 	screen.Fill(image.Black)
 
 	op := &ebiten.DrawImageOptions{}
@@ -162,34 +171,38 @@ func (intro *Intro) Draw(screen *ebiten.Image) {
 	screenHeight := screen.Bounds().Dy()
 	targetLogoHeight := float64(screenHeight) * 0.3
 	targetTextHeight := float64(screenHeight) * 0.1
-	scale := targetLogoHeight / float64(intro.logos[intro.logoIndex].image.Bounds().Dy())
+	scale := targetLogoHeight / float64(i.logos[i.logoIndex].image.Bounds().Dy())
 	op.Filter = ebiten.FilterLinear
 	op.GeoM.Scale(scale, scale)
 
 	// Center the logo image
-	logoX := float64(screenWidth)/2 - float64(intro.logos[intro.logoIndex].image.Bounds().Dx())*scale/2
+	logoX := float64(screenWidth)/2 - float64(i.logos[i.logoIndex].image.Bounds().Dx())*scale/2
 	logoY := float64(screenHeight)/2 - targetLogoHeight/2 - targetTextHeight/2
 	op.GeoM.Translate(logoX, logoY)
-	op.ColorScale.ScaleAlpha(intro.alpha)
-	screen.DrawImage(intro.logos[intro.logoIndex].image, op)
+	op.ColorScale.ScaleAlpha(i.alpha)
+	screen.DrawImage(i.logos[i.logoIndex].image, op)
 
 	textOp := &text.DrawOptions{}
 	textOp.PrimaryAlign = text.AlignCenter
 	textOp.SecondaryAlign = text.AlignCenter
 	textOp.GeoM.Translate(float64(screenWidth)/2, float64(screenHeight)/2+targetLogoHeight/2)
-	textOp.ColorScale.ScaleWithColor(intro.logos[intro.logoIndex].color)
-	textOp.ColorScale.ScaleAlpha(intro.alpha)
+	textOp.ColorScale.ScaleWithColor(i.logos[i.logoIndex].color)
+	textOp.ColorScale.ScaleAlpha(i.alpha)
 	text.Draw(
 		screen,
-		intro.logos[intro.logoIndex].name,
+		i.logos[i.logoIndex].name,
 		&text.GoTextFace{
-			Source: intro.logos[intro.logoIndex].font,
+			Source: i.logos[i.logoIndex].font,
 			Size:   targetTextHeight,
 		},
 		textOp,
 	)
 }
 
-func (intro *Intro) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return outsideWidth, outsideHeight
+func (i *Intro) Layout(width, height int) (int, int) {
+	return width, height
+}
+
+func (i *Intro) ChangePhase() (bool, phases.Index) {
+	return i.changePhase, i.nextPhase
 }
